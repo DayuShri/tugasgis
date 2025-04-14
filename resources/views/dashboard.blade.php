@@ -37,101 +37,100 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", function () {
-            var map = L.map('map').setView([-8.3405, 115.0920], 10); // Koordinat awal (Bali)
+    var map = L.map('map').setView([-8.3405, 115.0920], 10); // Koordinat awal (Bali)
+    var lastClickedLocation = null;
+    var standardMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    });
+    var satelliteMap = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Satellite'
+    });
+    var terrainMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenTopoMap contributors'
+    });
+    standardMap.addTo(map);
+    var baseMaps = {
+        "Standar": standardMap,
+        "Satelit": satelliteMap,
+        "Terrain": terrainMap
+    };
+    L.control.layers(baseMaps).addTo(map);
 
-            // Variabel untuk menyimpan lokasi terakhir yang diklik
-            var lastClickedLocation = null;
+    var markers = [];
 
-            // Definisikan berbagai jenis peta
-            var standardMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
+    // 🔁 Ambil dan tampilkan data dari database
+    fetch('/locations')
+        .then(response => response.json())
+        .then(data => {
+            data.forEach(loc => {
+                var marker = L.marker([loc.latitude, loc.longitude])
+                    .addTo(map)
+                    .bindPopup(
+                        "<b>Koordinat :</b><br>" +
+                        "<b>Latitude  :</b> " + loc.latitude + "<br>" +
+                        "<b>Longitude :</b> " + loc.longitude + "<br>" +
+                        "<b>Lokasi    :</b> " + loc.location_name
+                    );
+                markers.push(marker);
             });
+        })
+        .catch(error => console.error('Gagal fetch lokasi:', error));
 
-            var satelliteMap = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-                attribution: '&copy; Google Satellite'
-            });
+    // Tambah marker saat klik peta
+    map.on('click', function (e) {
+        var lat = e.latlng.lat.toFixed(6);
+        var lng = e.latlng.lng.toFixed(6);
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+            .then(response => response.json())
+            .then(data => {
+                var locationName = data.display_name || "Tidak diketahui";
+                var newMarker = L.marker([lat, lng]).addTo(map)
+                    .bindPopup(
+                        "<b>Koordinat :</b><br>" +
+                        "<b>Latitude  :</b> " + lat + "<br>" +
+                        "<b>Longitude :</b> " + lng + "<br>" +
+                        "<b>Lokasi    :</b> " + locationName
+                    )
+                    .openPopup();
+                markers.push(newMarker);
+                lastClickedLocation = { lat: lat, lng: lng, name: locationName };
+            })
+            .catch(error => console.log("Terjadi kesalahan:", error));
+    });
 
-            var terrainMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenTopoMap contributors'
-            });
+    document.getElementById("clearMarkers").addEventListener("click", function () {
+        markers.forEach(marker => map.removeLayer(marker));
+        markers = [];
+    });
 
-            // Set default layer peta ke Standard Map
-            standardMap.addTo(map);
+    document.getElementById("saveLocation").addEventListener("click", function () {
+        if (!lastClickedLocation) {
+            alert("Silakan klik peta terlebih dahulu!");
+            return;
+        }
 
-            // Tambahkan Layer Control untuk Mode Switch
-            var baseMaps = {
-                "Standar": standardMap,
-                "Satelit": satelliteMap,
-                "Terrain": terrainMap
-            };
-            L.control.layers(baseMaps).addTo(map);
-
-            // Array untuk menyimpan semua marker
-            var markers = [];
-
-            // Tambah marker saat peta diklik
-            map.on('click', function (e) {
-                var lat = e.latlng.lat.toFixed(6); // 6 angka di belakang koma
-                var lng = e.latlng.lng.toFixed(6);
-
-                // Reverse Geocoding dari Nominatim
-                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        var locationName = data.display_name || "Tidak diketahui";
-
-                        var newMarker = L.marker([lat, lng]).addTo(map)
-                            .bindPopup(
-                                "<b>Koordinat :</b><br>" +
-                                "<b>Latitude  :</b> " + lat + "<br>" +
-                                "<b>Longitude :</b> " + lng + "<br>" +
-                                "<b>Lokasi    :</b> " + locationName
-                            )
-                            .openPopup();
-
-                        markers.push(newMarker);
-                        lastClickedLocation = { lat: lat, lng: lng, name: locationName };
-                    })
-                    .catch(error => console.log("Terjadi kesalahan:", error));
-            });
-
-            // Hapus semua marker
-            document.getElementById("clearMarkers").addEventListener("click", function () {
-                markers.forEach(marker => {
-                    map.removeLayer(marker);
-                });
-                markers = [];
-            });
-
-            // Simpan lokasi terakhir ke database
-            document.getElementById("saveLocation").addEventListener("click", function () {
-                if (!lastClickedLocation) {
-                    alert("Silakan klik peta terlebih dahulu!");
-                    return;
-                }
-
-                fetch("/save-location", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                    },
-                    body: JSON.stringify({
-                        location_name: lastClickedLocation.name,
-                        latitude: lastClickedLocation.lat,
-                        longitude: lastClickedLocation.lng
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message || "Lokasi berhasil disimpan!");
-                })
-                .catch(error => {
-                    console.error("Gagal menyimpan lokasi:", error);
-                    alert("Terjadi kesalahan saat menyimpan lokasi.");
-                });
-            });
+        fetch("/save-location", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: JSON.stringify({
+                location_name: lastClickedLocation.name,
+                latitude: lastClickedLocation.lat,
+                longitude: lastClickedLocation.lng
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message || "Lokasi berhasil disimpan!");
+        })
+        .catch(error => {
+            console.error("Gagal menyimpan lokasi:", error);
+            alert("Terjadi kesalahan saat menyimpan lokasi.");
         });
+    });
+});
     </script>
 </x-app-layout>
